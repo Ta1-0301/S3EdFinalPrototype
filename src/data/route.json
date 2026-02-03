@@ -1,0 +1,126 @@
+{
+  "outbound": [
+    {
+      "id": "WP0",
+      "type": "start",
+      "lat": -45.86822708346206,
+      "lon": 170.5238871803729
+    },
+    {
+      "id": "STOP1",
+      "type": "bus_stop",
+      "name": "Anzac Ave, opposite Logan Park",
+      "lat": -45.86828304186452,
+      "lon": 170.52386202613934,
+      "audioFile": "Audio file Front of Unipol.mp3"
+    },
+    {
+      "id": "WP1",
+      "type": "turn_right",
+      "lat": -45.86699304928075,
+      "lon": 170.5193105304125
+    },
+    {
+      "id": "STOP2",
+      "type": "bus_stop",
+      "name": "Harbour Tce, 58",
+      "lat": -45.866064,
+      "lon": 170.519815,
+      "audioFile": "Audio file front of the Polytech .mp3"
+    },
+    {
+      "id": "WP2",
+      "type": "turn_left",
+      "lat": -45.86513585728661,
+      "lon": 170.52032033645207
+    },
+    {
+      "id": "WP3",
+      "type": "turn_left",
+      "lat": -45.864755192836775,
+      "lon": 170.51891979825743
+    },
+    {
+      "id": "WP4",
+      "type": "turn_left",
+      "lat": -45.86658506830762,
+      "lon": 170.51785790836135
+    },
+    {
+      "id": "STOP3",
+      "type": "bus_stop",
+      "name": "Union St (E)",
+      "lat": -45.86671539538493,
+      "lon": 170.51857342717668,
+      "audioFile": "Audio file front of the Robertson library.mp3"
+    },
+    {
+      "id": "WP5",
+      "type": "goal",
+      "lat": -45.86674840503403,
+      "lon": 170.51857514458825
+    }
+  ],
+  "inbound": [
+    {
+      "id": "WP0_REV",
+      "type": "start",
+      "lat": -45.86674840503403,
+      "lon": 170.51857514458825
+    },
+    {
+      "id": "STOP3_REV",
+      "type": "bus_stop",
+      "name": "Union St (E) - Return",
+      "lat": -45.86671539538493,
+      "lon": 170.51857342717668,
+      "audioFile": "Audio file front of the Robertson library.mp3"
+    },
+    {
+      "id": "WP4_REV",
+      "type": "turn_right",
+      "lat": -45.86658506830762,
+      "lon": 170.51785790836135
+    },
+    {
+      "id": "WP3_REV",
+      "type": "turn_right",
+      "lat": -45.864755192836775,
+      "lon": 170.51891979825743
+    },
+    {
+      "id": "WP2_REV",
+      "type": "turn_right",
+      "lat": -45.86513585728661,
+      "lon": 170.52032033645207
+    },
+    {
+      "id": "STOP2_REV",
+      "type": "bus_stop",
+      "name": "Harbour Tce - Return",
+      "lat": -45.866064,
+      "lon": 170.519815,
+      "audioFile": "Audio file front of the Polytech .mp3"
+    },
+    {
+      "id": "WP1_REV",
+      "type": "turn_left",
+      "lat": -45.86699304928075,
+      "lon": 170.5193105304125
+    },
+    {
+      "id": "STOP1_REV",
+      "type": "bus_stop",
+      "name": "Anzac Ave - Return",
+      "lat": -45.86828304186452,
+      "lon": 170.52386202613934,
+      "audioFile": "Audio file Front of Unipol.mp3"
+    },
+    {
+      "id": "WP0_REV_GOAL",
+      "type": "goal",
+      "lat": -45.86822708346206,
+      "lon": 170.5238871803729
+    }
+  ]
+}

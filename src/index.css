@@ -1,0 +1,605 @@
+/* ======================================
+   Bus Navigation AR App - Design System
+   ====================================== */
+
+:root {
+  /* Colors - Dark Theme with Lime Accent */
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #2d2d2d;
+  --bg-card: rgba(45, 45, 45, 0.95);
+  --bg-overlay: rgba(0, 0, 0, 0.7);
+
+  --text-primary: #ffffff;
+  --text-secondary: #b0b0b0;
+  --text-muted: #707070;
+
+  --accent-lime: #7CFC00;
+  --accent-lime-dark: #5cb000;
+  --accent-red: #ff4444;
+  --accent-cyan: #00d4ff;
+  --accent-coral: #ff6b6b;
+  --accent-purple: #8b5cf6;
+
+  /* Icon backgrounds */
+  --icon-bg-green: #4ade80;
+  --icon-bg-red: #fbbf24;
+
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 12px;
+  --spacing-lg: 16px;
+  --spacing-xl: 24px;
+
+  /* Border Radius */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  /* Typography */
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg-primary);
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#root {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ======================================
+   Layout Containers
+   ====================================== */
+
+.app-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  background: var(--bg-primary);
+  position: relative;
+}
+
+/* Portrait Layout (Default) */
+.app-container.portrait {
+  flex-direction: column;
+}
+
+/* Landscape Layout */
+.app-container.landscape {
+  flex-direction: row;
+}
+
+/* Left Panel (Landscape) / Top Panel (Portrait) */
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-md);
+  background: var(--bg-primary);
+  z-index: 20;
+}
+
+.portrait .side-panel {
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.landscape .side-panel {
+  width: 320px;
+  min-width: 280px;
+  max-width: 360px;
+  height: 100%;
+}
+
+/* Camera View Container */
+.camera-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  margin: var(--spacing-sm);
+}
+
+.landscape .camera-container {
+  margin-left: 0;
+}
+
+.portrait .camera-container {
+  margin-top: 0;
+}
+
+/* ======================================
+   Navigation Cards
+   ====================================== */
+
+.nav-card {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  position: relative;
+}
+
+.nav-card-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.nav-card-icon.turn {
+  background: var(--icon-bg-green);
+}
+
+.nav-card-icon.stop {
+  background: var(--icon-bg-red);
+}
+
+.nav-card-icon svg {
+  width: 28px;
+  height: 28px;
+  color: #1a1a1a;
+}
+
+.nav-card-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.nav-card-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-card-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.nav-card-subtitle span {
+  margin-right: var(--spacing-sm);
+}
+
+.nav-card-subtitle span:last-child {
+  margin-right: 0;
+}
+
+/* ======================================
+   Compass Indicator
+   ====================================== */
+
+.compass-indicator {
+  position: absolute;
+  right: var(--spacing-md);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+}
+
+.compass-arrow {
+  width: 100%;
+  height: 100%;
+  color: var(--accent-cyan);
+}
+
+/* ======================================
+   Progress Bar (Vertical)
+   ====================================== */
+
+.progress-bar-container {
+  position: absolute;
+  right: var(--spacing-lg);
+  top: var(--spacing-xl);
+  bottom: var(--spacing-xl);
+  width: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  z-index: 25;
+}
+
+.progress-bar-fill {
+  position: absolute;
+  bottom: 0;
+  width: 100%;
+  background: var(--text-primary);
+  border-radius: 2px;
+  transition: height 0.3s ease;
+}
+
+/* ======================================
+   MiniMap Styles
+   ====================================== */
+
+.minimap-container {
+  flex: 1;
+  min-height: 120px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius-md);
+  position: relative;
+  overflow: hidden;
+}
+
+.minimap-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.minimap-route-line {
+  fill: none;
+  stroke: var(--text-primary);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.minimap-bus-stop {
+  fill: var(--accent-lime);
+}
+
+.minimap-bus-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.minimap-current-pos {
+  fill: var(--accent-cyan);
+}
+
+/* ======================================
+   AR Overlay Elements
+   ====================================== */
+
+/* Landmark Labels */
+.landmark-label {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  pointer-events: none;
+  z-index: 15;
+}
+
+.landmark-text {
+  background: rgba(0, 0, 0, 0.85);
+  color: var(--text-primary);
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.landmark-icon {
+  width: 40px;
+  height: 40px;
+  background: rgba(255, 255, 255, 0.9);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.landmark-icon svg {
+  width: 20px;
+  height: 20px;
+  color: #666;
+}
+
+/* Destination Pin */
+.destination-pin {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  z-index: 16;
+  animation: pin-bounce 1s ease-in-out infinite;
+}
+
+@keyframes pin-bounce {
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.pin-marker {
+  width: 40px;
+  height: 50px;
+}
+
+.pin-shadow {
+  width: 30px;
+  height: 10px;
+  background: radial-gradient(ellipse, rgba(139, 92, 246, 0.6) 0%, transparent 70%);
+  margin-top: -5px;
+}
+
+/* ======================================
+   Camera Feed
+   ====================================== */
+
+.camera-feed {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+.camera-feed video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ======================================
+   Status Indicators
+   ====================================== */
+
+.status-bar {
+  position: absolute;
+  top: var(--spacing-md);
+  right: var(--spacing-md);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  z-index: 25;
+}
+
+.signal-icon {
+  color: var(--text-primary);
+}
+
+/* ======================================
+   Utility Classes
+   ====================================== */
+
+.relative {
+  position: relative;
+}
+
+.absolute {
+  position: absolute;
+}
+
+.w-full {
+  width: 100%;
+}
+
+.h-full {
+  height: 100%;
+}
+
+.flex {
+  display: flex;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.justify-center {
+  justify-content: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.gap-1 {
+  gap: 4px;
+}
+
+.gap-2 {
+  gap: 8px;
+}
+
+.gap-3 {
+  gap: 12px;
+}
+
+.p-2 {
+  padding: 8px;
+}
+
+.p-3 {
+  padding: 12px;
+}
+
+.p-4 {
+  padding: 16px;
+}
+
+.text-white {
+  color: white;
+}
+
+.text-sm {
+  font-size: 14px;
+}
+
+.text-xs {
+  font-size: 12px;
+}
+
+.font-bold {
+  font-weight: 700;
+}
+
+.pointer-events-none {
+  pointer-events: none;
+}
+
+.z-10 {
+  z-index: 10;
+}
+
+.z-20 {
+  z-index: 20;
+}
+
+.overflow-hidden {
+  overflow: hidden;
+}
+
+/* ======================================
+   Animations
+   ====================================== */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slideInTop {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-slide-left {
+  animation: slideInLeft 0.4s ease-out;
+}
+
+.animate-slide-top {
+  animation: slideInTop 0.4s ease-out;
+}
+
+/* ======================================
+   Media Queries for Orientation
+   ====================================== */
+
+@media (orientation: landscape) {
+  .auto-layout {
+    flex-direction: row;
+  }
+
+  .auto-layout .side-panel {
+    width: 320px;
+    height: 100%;
+  }
+
+  .auto-layout .camera-container {
+    margin-left: 0;
+  }
+}
+
+@media (orientation: portrait) {
+  .auto-layout {
+    flex-direction: column;
+  }
+
+  .auto-layout .side-panel {
+    width: 100%;
+  }
+
+  .auto-layout .camera-container {
+    margin-top: 0;
+  }
+
+  .auto-layout .minimap-container {
+    min-height: 140px;
+    max-height: 180px;
+  }
+}
+
+/* Small screens adjustments */
+@media (max-width: 400px) {
+  .nav-card {
+    padding: var(--spacing-sm);
+    gap: var(--spacing-sm);
+  }
+
+  .nav-card-icon {
+    width: 40px;
+    height: 40px;
+  }
+
+  .nav-card-title {
+    font-size: 16px;
+  }
+
+  .nav-card-subtitle {
+    font-size: 11px;
+  }
+}
