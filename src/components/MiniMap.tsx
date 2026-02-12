@@ -1,24 +1,7 @@
-import React, { useMemo } from 'react';
-import routeData from '../data/route.json';
+import React, { useRef, useEffect } from 'react';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 import type { Coordinate } from '../utils/geoUtils';
-
-// Bus stop icon SVG (From new design)
-const BusStopMarker = ({ x, y, isNext }: { x: number; y: number; isNext: boolean }) => (
-    <g transform={`translate(${x - 8}, ${y - 16})`}>
-        <rect
-            x="0" y="0"
-            width="16" height="16"
-            rx="3"
-            fill={isNext ? "#7CFC00" : "#4ade80"}
-        />
-        <path
-            d="M4 4h8v7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V4z"
-            fill="white"
-        />
-        <rect x="5" y="5" width="2" height="2" fill="#333" />
-        <rect x="9" y="5" width="2" height="2" fill="#333" />
-    </g>
-);
 
 interface MiniMapProps {
     userLocation: Coordinate;
@@ -29,126 +12,221 @@ interface MiniMapProps {
 
 export const MiniMap: React.FC<MiniMapProps> = ({
     userLocation,
-    nextWaypointIndex,
     userHeading,
     activeRoute = []
 }) => {
-    // Use passed activeRoute or fallback
-    const displayRoute = activeRoute.length > 0 ? activeRoute : routeData.outbound;
+    const mapContainerRef = useRef<HTMLDivElement>(null);
+    const mapRef = useRef<maplibregl.Map | null>(null);
+    const userMarkerRef = useRef<maplibregl.Marker | null>(null);
+    const initializedRef = useRef(false);
 
-    // Calculate bounding box (Original logic with slightly tighter padding)
-    const { minLat, maxLat, minLon, maxLon } = useMemo(() => {
-        let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
-        displayRoute.forEach((wp: any) => {
-            minLat = Math.min(minLat, wp.lat);
-            maxLat = Math.max(maxLat, wp.lat);
-            minLon = Math.min(minLon, wp.lon);
-            maxLon = Math.max(maxLon, wp.lon);
+    // Initialize map
+    useEffect(() => {
+        if (!mapContainerRef.current || mapRef.current) return;
+
+        const map = new maplibregl.Map({
+            container: mapContainerRef.current,
+            style: {
+                version: 8,
+                sources: {
+                    'osm-tiles': {
+                        type: 'raster',
+                        tiles: [
+                            'https://a.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            'https://b.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            'https://c.tile.openstreetmap.org/{z}/{x}/{y}.png',
+                        ],
+                        tileSize: 256,
+                        attribution: '© OpenStreetMap',
+                    },
+                },
+                layers: [
+                    {
+                        id: 'osm-tiles-layer',
+                        type: 'raster',
+                        source: 'osm-tiles',
+                        minzoom: 0,
+                        maxzoom: 19,
+                    },
+                ],
+            },
+            center: [170.5194, -45.8670], // Dunedin default
+            zoom: 16,
+            bearing: 0,
+            pitch: 0,
+            interactive: false, // No user interaction — display only
+            attributionControl: false,
         });
-        // Original padding logic
-        const latPad = (maxLat - minLat) * 0.1 || 0.001;
-        const lonPad = (maxLon - minLon) * 0.1 || 0.001;
-        return {
-            minLat: minLat - latPad,
-            maxLat: maxLat + latPad,
-            minLon: minLon - lonPad,
-            maxLon: maxLon + lonPad
+
+        // Disable all interactions for a clean display-only map
+        map.dragRotate.disable();
+        map.touchZoomRotate.disable();
+        map.scrollZoom.disable();
+        map.boxZoom.disable();
+        map.dragPan.disable();
+        map.doubleClickZoom.disable();
+        map.keyboard.disable();
+
+        map.on('load', () => {
+            // Add route source (empty initially — will be populated when route is set)
+            map.addSource('route', {
+                type: 'geojson',
+                data: {
+                    type: 'Feature',
+                    properties: {},
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: [],
+                    },
+                },
+            });
+
+            // Route line - upcoming section (bright)
+            map.addLayer({
+                id: 'route-line',
+                type: 'line',
+                source: 'route',
+                layout: {
+                    'line-join': 'round',
+                    'line-cap': 'round',
+                },
+                paint: {
+                    'line-color': '#ffffff',
+                    'line-width': 4,
+                    'line-opacity': 0.9,
+                },
+            });
+
+            // Bus stops source
+            map.addSource('bus-stops', {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: [],
+                },
+            });
+
+            // Bus stop markers
+            map.addLayer({
+                id: 'bus-stops-layer',
+                type: 'circle',
+                source: 'bus-stops',
+                paint: {
+                    'circle-radius': 6,
+                    'circle-color': '#4CAF50',
+                    'circle-stroke-width': 2,
+                    'circle-stroke-color': '#ffffff',
+                },
+            });
+
+            // Bus stop icons (inner)
+            map.addLayer({
+                id: 'bus-stops-inner',
+                type: 'circle',
+                source: 'bus-stops',
+                paint: {
+                    'circle-radius': 3,
+                    'circle-color': '#ffffff',
+                },
+            });
+
+            initializedRef.current = true;
+        });
+
+        mapRef.current = map;
+
+        return () => {
+            map.remove();
+            mapRef.current = null;
+            initializedRef.current = false;
         };
-    }, [displayRoute]);
+    }, []);
 
-    const normalize = (lat: number, lon: number) => {
-        const y = ((maxLat - lat) / (maxLat - minLat)) * 100; // Invert Lat for Y
-        const x = ((lon - minLon) / (maxLon - minLon)) * 100;
-        return { x, y };
-    };
+    // Update route data when activeRoute changes
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || !initializedRef.current || activeRoute.length === 0) return;
 
-    // Generate route line points
-    const routePoints = displayRoute.map((wp: any) => {
-        const pos = normalize(wp.lat, wp.lon);
-        return `${pos.x},${pos.y}`;
-    }).join(' ');
+        const routeSource = map.getSource('route') as maplibregl.GeoJSONSource;
+        if (routeSource) {
+            const coordinates = activeRoute.map((wp: any) => [wp.lon, wp.lat]);
+            routeSource.setData({
+                type: 'Feature',
+                properties: {},
+                geometry: {
+                    type: 'LineString',
+                    coordinates,
+                },
+            });
+        }
 
-    const userPos = normalize(userLocation.lat, userLocation.lon);
-    const nextWp = displayRoute[nextWaypointIndex];
+        // Update bus stops
+        const busStopSource = map.getSource('bus-stops') as maplibregl.GeoJSONSource;
+        if (busStopSource) {
+            const features = activeRoute
+                .filter((wp: any) => wp.type === 'bus_stop')
+                .map((wp: any) => ({
+                    type: 'Feature' as const,
+                    properties: { name: wp.name || 'Stop' },
+                    geometry: {
+                        type: 'Point' as const,
+                        coordinates: [wp.lon, wp.lat],
+                    },
+                }));
+            busStopSource.setData({
+                type: 'FeatureCollection',
+                features,
+            });
+        }
+
+        // Fit bounds to route
+        if (activeRoute.length >= 2) {
+            const bounds = new maplibregl.LngLatBounds();
+            activeRoute.forEach((wp: any) => bounds.extend([wp.lon, wp.lat]));
+            map.fitBounds(bounds, { padding: 30, duration: 0 });
+        }
+    }, [activeRoute]);
+
+    // Update user position and heading
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map || userLocation.lat === 0) return;
+
+        // Center map on user — heading-up display
+        // MapLibre bearing = compass heading → rotates map so heading is "up"
+        map.easeTo({
+            center: [userLocation.lon, userLocation.lat],
+            bearing: userHeading,
+            duration: 300,
+            zoom: 17,
+        });
+
+        // Create or update user marker
+        if (!userMarkerRef.current) {
+            const el = document.createElement('div');
+            el.className = 'maplibre-user-marker';
+            el.innerHTML = `
+                <svg width="28" height="28" viewBox="0 0 24 24">
+                    <polygon points="12,2 22,22 12,17 2,22" fill="none" stroke="#00d4ff" stroke-width="2"/>
+                </svg>
+            `;
+
+            userMarkerRef.current = new maplibregl.Marker({
+                element: el,
+                // viewport alignment = arrow always points up on screen
+                rotationAlignment: 'viewport',
+                pitchAlignment: 'viewport',
+            })
+                .setLngLat([userLocation.lon, userLocation.lat])
+                .addTo(map);
+        } else {
+            userMarkerRef.current.setLngLat([userLocation.lon, userLocation.lat]);
+        }
+    }, [userLocation, userHeading]);
 
     return (
         <div className="minimap-container">
-            <svg viewBox="0 0 100 100" className="minimap-svg" preserveAspectRatio="xMidYMid meet">
-                <style>{`
-          @keyframes pulse {
-            0% { r: 3; opacity: 1; }
-            100% { r: 10; opacity: 0; }
-          }
-          .user-pulse {
-            animation: pulse 2s infinite;
-            fill: #00d4ff;
-          }
-        `}</style>
-
-                {/* Route Line - Original Style */}
-                <polyline
-                    points={routePoints}
-                    fill="none"
-                    stroke="rgba(255, 255, 255, 0.4)"
-                    strokeWidth="4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                />
-
-                {/* Next Leg Highlight (Dotted Line) - Original Feature */}
-                {nextWp && userLocation.lat !== 0 && (
-                    <line
-                        x1={userPos.x} y1={userPos.y}
-                        x2={normalize(nextWp.lat, nextWp.lon).x} y2={normalize(nextWp.lat, nextWp.lon).y}
-                        stroke="#7CFC00"
-                        strokeWidth="2"
-                        strokeDasharray="4 2"
-                        opacity="0.8"
-                    />
-                )}
-
-                {/* Waypoints & Bus Stops */}
-                {displayRoute.map((wp: any, idx: number) => {
-                    const pos = normalize(wp.lat, wp.lon);
-                    const isNext = idx === nextWaypointIndex;
-
-                    if (wp.type === 'bus_stop') {
-                        return (
-                            <BusStopMarker
-                                key={wp.id}
-                                x={pos.x}
-                                y={pos.y}
-                                isNext={isNext}
-                            />
-                        );
-                    }
-
-                    // Regular waypoint (Turn) - Original Dot Style
-                    return (
-                        <circle
-                            key={wp.id}
-                            cx={pos.x}
-                            cy={pos.y}
-                            r={isNext ? 3 : 2}
-                            fill={isNext ? "#7CFC00" : "white"}
-                            opacity={isNext ? 1 : 0.5}
-                        />
-                    );
-                })}
-
-                {/* User Arrow & Pulse - Original Style */}
-                {userLocation.lat !== 0 && (
-                    <g transform={`translate(${userPos.x}, ${userPos.y})`}>
-                        {/* Pulse Effect */}
-                        <circle cx="0" cy="0" r="3" className="user-pulse" />
-
-                        {/* Direction Arrow (Simple) */}
-                        <g transform={`rotate(${userHeading})`}>
-                            <path d="M0 -6 L5 6 L0 3 L-5 6 Z" fill="#00d4ff" stroke="white" strokeWidth="1.5" />
-                        </g>
-                    </g>
-                )}
-            </svg>
+            <div ref={mapContainerRef} className="minimap-gl" />
         </div>
     );
 };

@@ -1,75 +1,61 @@
-
-
 import { useState, useEffect, useRef } from 'react';
 
 // Smoothing factor for Low Pass Filter (0.0 - 1.0)
-// Lower = smoother but more lag. Higher = more responsive but jittery.
 const SMOOTHING_FACTOR = 0.15;
 
 export const useOrientation = () => {
     const [heading, setHeading] = useState<number>(0);
     const [error, setError] = useState<string | null>(null);
 
-    // Use ref to keep track of the smoothed angular value to prevent state-loop issues
     const currentHeadingRef = useRef<number>(0);
-    const screenOrientationRef = useRef<number>(0);
 
     useEffect(() => {
-        // 1. Handle Screen Orientation Changes (Portrait/Landscape)
-        const updateScreenOrientation = () => {
-            let angle = 0;
-            if (typeof window !== 'undefined') {
-                if (screen.orientation && screen.orientation.angle) {
-                    angle = screen.orientation.angle;
-                } else if (typeof window.orientation === 'number') {
-                    angle = window.orientation as number;
-                }
-            }
-            screenOrientationRef.current = angle;
-        };
-
-        window.addEventListener('orientationchange', updateScreenOrientation);
-        updateScreenOrientation();
-
-        // 2. Handle Device Orientation
-        const handleOrientation = (event: any) => {
-            let absoluteHeading: number | null = null;
+        const handleOrientation = (event: DeviceOrientationEvent) => {
+            let compassHeading: number | null = null;
 
             // iOS WebKit
-            if (typeof event.webkitCompassHeading === 'number') {
-                absoluteHeading = event.webkitCompassHeading;
+            if (typeof (event as any).webkitCompassHeading === 'number') {
+                compassHeading = (event as any).webkitCompassHeading;
             }
             // Android / Standards (Absolute)
-            // Check if the event is absolute. 
-            // Note: 'deviceorientationabsolute' event usually guarantees absolute values.
-            else if (event.absolute === true || event.alpha !== null) {
-                // alpha: rotation around z-axis [0, 360) within [0, 360)
-                // 0 is Earth's North? Not always, but for 'deviceorientationabsolute' it should be.
-                // Standard: z-axis is up. alpha=0 is north. 
-                // rotation logic: alpha increases as device rotates counter-clockwise.
-                // Compass heading is usually clockwise. 
-                // So compassHeading = 360 - alpha.
-                absoluteHeading = 360 - (event.alpha as number);
+            // 'alpha' is rotation around z-axis. 0 is North.
+            // Increases counter-clockwise.
+            // Compass heading (clockwise from North) = 360 - alpha.
+            else if (event.alpha !== null) {
+                // If the event is absolute, or generally on Android Chrome
+                compassHeading = (360 - event.alpha) % 360;
             }
 
-            if (absoluteHeading !== null) {
-                // Apply Screen Orientation Correction
-                // If screen is rotated 90 deg (Landscape), we need to add/subtract 90 deg.
-                let correctedHeading = absoluteHeading + screenOrientationRef.current;
+            if (compassHeading !== null) {
+                // Screen orientation correction (Portrait vs Landscape)
+                // When in landscape, we need to adjust the heading.
+                // window.orientation is deprecated but still widely supported.
+                // screen.orientation.angle is the modern standard.
+                let screenAngle = 0;
+                if (screen.orientation && screen.orientation.angle !== undefined) {
+                    screenAngle = screen.orientation.angle;
+                } else if (typeof window.orientation === 'number') {
+                    screenAngle = window.orientation as number;
+                }
 
-                correctedHeading = (correctedHeading + 360) % 360;
+                // Correct heading calculation:
+                // If device is rotated 90 deg (Landscape Primary), screenAngle is 90.
+                // Compass heading (Device Top) points West (270) when User faces North (0).
+                // We want 0. So 270 + 90 = 360 (0).
+                // Therefore, we should ADD the screen angle.
 
-                // Apply Low-Pass Filter (Smoothing)
-                // We need custom logic for circular values (0 vs 360 boundary)
-                // It's easier to smooth the vector components (sin/cos)
+                let correctedHeading = compassHeading;
+                if (screenAngle !== 0) {
+                    correctedHeading = (compassHeading + screenAngle) % 360;
+                }
 
+                // Smoothing (Low Pass Filter)
                 const currentRad = (currentHeadingRef.current * Math.PI) / 180;
                 const targetRad = (correctedHeading * Math.PI) / 180;
 
                 // Decompose to x, y
                 const cx = Math.cos(currentRad);
                 const cy = Math.sin(currentRad);
-
                 const tx = Math.cos(targetRad);
                 const ty = Math.sin(targetRad);
 
@@ -82,32 +68,46 @@ export const useOrientation = () => {
                 smoothHeading = (smoothHeading + 360) % 360;
 
                 currentHeadingRef.current = smoothHeading;
-
-                // Throttling state updates could be good here if 60fps React renders are heavy,
-                // but for now Update state directly.
                 setHeading(smoothHeading);
             }
         };
 
-        // Use absolute event if available (Android Chrome)
-        if ('ondeviceorientationabsolute' in window) {
-            (window as any).addEventListener('deviceorientationabsolute', handleOrientation as EventListener, true);
-        }
-        else if ('ondeviceorientation' in window) {
-            // On iOS, this event includes webkitCompassHeading which IS absolute.
-            // On standard non-absolute devices, this might be relative (which we want to avoid if possible).
-            (window as any).addEventListener('deviceorientation', handleOrientation as EventListener, true);
-        }
-        else {
-            setError("Device orientation not supported");
-        }
+        // iOS Permission Request
+        const requestPermission = async () => {
+            if (typeof (DeviceOrientationEvent as any).requestPermission === 'function') {
+                try {
+                    const permission = await (DeviceOrientationEvent as any).requestPermission();
+                    if (permission !== 'granted') {
+                        setError('Permission denied');
+                        return false;
+                    }
+                } catch (e) {
+                    console.error(e);
+                    return false;
+                }
+            }
+            return true;
+        };
+
+        const init = async () => {
+            const allowed = await requestPermission();
+            if (allowed) {
+                // Try absolute event first (Android)
+                if ('ondeviceorientationabsolute' in window) {
+                    (window as any).addEventListener('deviceorientationabsolute', handleOrientation, true);
+                } else {
+                    (window as any).addEventListener('deviceorientation', handleOrientation, true);
+                }
+            }
+        };
+
+        init();
 
         return () => {
-            window.removeEventListener('orientationchange', updateScreenOrientation);
             if ('ondeviceorientationabsolute' in window) {
-                (window as any).removeEventListener('deviceorientationabsolute', handleOrientation as EventListener, true);
+                (window as any).removeEventListener('deviceorientationabsolute', handleOrientation, true);
             } else {
-                (window as any).removeEventListener('deviceorientation', handleOrientation as EventListener, true);
+                (window as any).removeEventListener('deviceorientation', handleOrientation, true);
             }
         };
     }, []);

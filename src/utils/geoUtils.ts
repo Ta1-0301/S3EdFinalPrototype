@@ -1,6 +1,11 @@
 export interface Coordinate {
     lat: number;
     lon: number;
+    altitude?: number;
+    accuracy?: number;
+    speed?: number;
+    headingGPS?: number;
+    timestamp?: number;
 }
 
 export interface Waypoint extends Coordinate {

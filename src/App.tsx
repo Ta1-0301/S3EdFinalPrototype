@@ -4,32 +4,29 @@ import { ARView } from './components/ARView';
 import { MiniMap } from './components/MiniMap';
 import { NavigationCard } from './components/NavigationCard';
 // import { LandmarkLabel, DestinationPin } from './components/LandmarkLabel';
-import { useGeolocation } from './hooks/useGeolocation';
-import { useOrientation } from './hooks/useOrientation';
+import { useSensorFusion } from './hooks/useSensorFusion';
 import { calculateDistance, calculateBearing, findNearestWaypointIndex } from './utils/geoUtils';
 import routeData from './data/route.json';
 
 function App() {
-  const { coordinates: userLoc, loaded: geoLoaded, error: geoError } = useGeolocation();
-  const { heading: deviceHeading } = useOrientation();
+  // Sensor Fusion: GPS + Orientation + Kalman Filter
+  const {
+    smoothedLocation,
+    heading: deviceHeading,
+    pitch: devicePitch,
+    accuracy: gpsAccuracy,
+    loaded: geoLoaded,
+    error: geoError,
+    calibrateHeading,
+  } = useSensorFusion();
+
+  // Use smoothed (Kalman-filtered) location for navigation
+  const userLoc = smoothedLocation;
 
   const [targetIndex, setTargetIndex] = useState<number>(1);
   const [isNavigating, setIsNavigating] = useState(false);
   const [activeRoute, setActiveRoute] = useState<any[]>([]);
-  const [isLandscape, setIsLandscape] = useState(window.innerWidth > window.innerHeight);
-
-  // Orientation detection
-  useEffect(() => {
-    const handleResize = () => {
-      setIsLandscape(window.innerWidth > window.innerHeight);
-    };
-    window.addEventListener('resize', handleResize);
-    window.addEventListener('orientationchange', handleResize);
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      window.removeEventListener('orientationchange', handleResize);
-    };
-  }, []);
+  const [isOutbound, setIsOutbound] = useState(true);
 
   // Audio refs
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -45,7 +42,9 @@ function App() {
       const distToOutbound = calculateDistance(userLoc, outboundStart);
       const distToInbound = calculateDistance(userLoc, inboundStart);
 
-      const selectedRoute = distToInbound < distToOutbound ? routeData.inbound : routeData.outbound;
+      const isOut = distToOutbound <= distToInbound;
+      setIsOutbound(isOut);
+      const selectedRoute = isOut ? routeData.outbound : routeData.inbound;
       setActiveRoute(selectedRoute);
 
       const nearestIdx = findNearestWaypointIndex(userLoc, selectedRoute);
@@ -56,6 +55,18 @@ function App() {
       setIsNavigating(true);
     }
   }, [geoLoaded, userLoc, isNavigating]);
+
+  // Toggle route direction
+  const toggleRoute = () => {
+    const newIsOutbound = !isOutbound;
+    setIsOutbound(newIsOutbound);
+    const newRoute = newIsOutbound ? routeData.outbound : routeData.inbound;
+    setActiveRoute(newRoute);
+    const nearestIdx = findNearestWaypointIndex(userLoc, newRoute);
+    let newTarget = nearestIdx + 1;
+    if (newTarget >= newRoute.length) newTarget = newRoute.length - 1;
+    setTargetIndex(newTarget);
+  };
 
   // Update Navigation Progress & Audio
   useEffect(() => {
@@ -140,12 +151,26 @@ function App() {
     for (let i = targetIndex; i < activeRoute.length; i++) {
       if (activeRoute[i].type === 'bus_stop') {
         const dist = Math.round(calculateDistance(userLoc, activeRoute[i]));
-        // Count stops until this one
         let stopsUntil = 0;
         for (let j = targetIndex; j < i; j++) {
           if (activeRoute[j].type === 'bus_stop') stopsUntil++;
         }
         return { ...activeRoute[i], distance: dist, stopsUntil };
+      }
+    }
+    return null;
+  }, [activeRoute, targetIndex, userLoc]);
+
+  // Find second bus stop (for 3rd card)
+  const secondBusStop = useMemo(() => {
+    let found = 0;
+    for (let i = targetIndex; i < activeRoute.length; i++) {
+      if (activeRoute[i].type === 'bus_stop') {
+        found++;
+        if (found === 2) {
+          const dist = Math.round(calculateDistance(userLoc, activeRoute[i]));
+          return { ...activeRoute[i], distance: dist };
+        }
       }
     }
     return null;
@@ -163,21 +188,12 @@ function App() {
     return deviceHeading;
   }, [userLoc, currentTarget, deviceHeading, distanceToTarget]);
 
-  // Calculate progress percentage
-  const progressPercent = useMemo(() => {
-    if (activeRoute.length === 0) return 0;
-    return Math.min(100, (targetIndex / (activeRoute.length - 1)) * 100);
-  }, [targetIndex, activeRoute.length]);
-
   // Turn direction
   const getTurnDirection = (type: string): 'left' | 'right' | 'straight' => {
     if (type.includes('left')) return 'left';
     if (type.includes('right')) return 'right';
     return 'straight';
   };
-
-  // Show destination pin when close (temporarily disabled)
-  // const showDestinationPin = distanceToTarget < 100 && currentTarget?.type === 'goal';
 
   if (geoError) {
     return (
@@ -188,86 +204,123 @@ function App() {
   }
 
   return (
-    <div className={`app-container auto-layout ${isLandscape ? 'landscape' : 'portrait'}`}>
-      {/* Side Panel - Navigation Cards + MiniMap */}
-      <div className="side-panel">
-        {/* Turn Card */}
-        {nextTurn && (
-          <NavigationCard
-            type="turn"
-            title={`Turn ${getTurnDirection(nextTurn.type) === 'left' ? 'Left' : 'Right'}`}
-            distance={nextTurn.distance}
-            subtitle={`${distanceToTarget}m away | stop in ${nextBusStop?.stopsUntil ?? 0}`}
-            turnDirection={getTurnDirection(nextTurn.type)}
+    <div className="app-root">
+      {/* ============ AR Camera (Full Screen Background) ============ */}
+      <div className="ar-fullscreen">
+        <CameraFeed />
+        {geoLoaded && (
+          <ARView
+            targetBearing={bearingToTarget}
+            currentHeading={deviceHeading}
+            landmarks={routeData.landmarks}
+            userLocation={userLoc}
           />
         )}
 
-        {/* Bus Stop Card */}
-        {nextBusStop && (
-          <NavigationCard
-            type="stop"
-            title={nextBusStop.name || 'Bus Stop'}
-            distance={nextBusStop.distance}
-            subtitle={nextBusStop.stopsUntil === 0 ? 'next stop' : `stop in ${nextBusStop.stopsUntil + 1}`}
-          />
-        )}
+        {/* β Badge — Top Left */}
+        <div className="beta-badge">β</div>
 
-        {/* MiniMap */}
+        {/* Heading Calibration Button — Top Right */}
+        <button
+          className="calibrate-btn"
+          onClick={() => {
+            if (activeRoute.length < 2) return;
+            // Find current road segment
+            const idx = Math.max(0, Math.min(targetIndex, activeRoute.length - 1));
+            const prevIdx = Math.max(0, idx - 1);
+            const from = activeRoute[prevIdx];
+            const to = activeRoute[idx];
+            // Calculate road bearing
+            const roadBearing = calculateBearing(from, to);
+            calibrateHeading(roadBearing);
+          }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="10" />
+            <circle cx="12" cy="12" r="3" />
+            <line x1="12" y1="2" x2="12" y2="6" />
+            <line x1="12" y1="18" x2="12" y2="22" />
+            <line x1="2" y1="12" x2="6" y2="12" />
+            <line x1="18" y1="12" x2="22" y2="12" />
+          </svg>
+        </button>
+
+        {/* Debug Overlay */}
+        <div className="debug-overlay">
+          <div>HEAD: {Math.round(deviceHeading)}°</div>
+          <div>KF: {userLoc.lat.toFixed(4)},{userLoc.lon.toFixed(4)}</div>
+          <div>ACC: {gpsAccuracy.toFixed(0)}m PIT: {Math.round(devicePitch)}°</div>
+        </div>
+      </div>
+
+      {/* ============ Route Name Bar (overlaid on AR) ============ */}
+      <div className="route-bar">
+        <button className="route-toggle-btn" onClick={toggleRoute}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            {isOutbound ? (
+              <polyline points="9,6 15,12 9,18" />
+            ) : (
+              <polyline points="15,6 9,12 15,18" />
+            )}
+          </svg>
+        </button>
+        <span className="route-name">route β</span>
+      </div>
+
+      {/* ============ Info Cards (Horizontal Scroll) ============ */}
+      <div className="cards-scroll-container">
+        <div className="cards-scroll">
+          {/* Card 1: Next Bus Stop */}
+          {nextBusStop && (
+            <NavigationCard
+              type="stop"
+              title={nextBusStop.name || 'Bus Stop'}
+              distance={nextBusStop.distance}
+              label="next stop"
+            />
+          )}
+
+          {/* Card 2: Next Turn */}
+          {nextTurn && (
+            <NavigationCard
+              type="turn"
+              title={`Turn ${getTurnDirection(nextTurn.type) === 'left' ? 'Left' : 'Right'}`}
+              distance={nextTurn.distance}
+              turnDirection={getTurnDirection(nextTurn.type)}
+              label="next stop"
+            />
+          )}
+
+          {/* Card 3: Second Bus Stop */}
+          {secondBusStop && (
+            <NavigationCard
+              type="stop"
+              title={secondBusStop.name || 'Bus Stop'}
+              distance={secondBusStop.distance}
+              label="next stop"
+            />
+          )}
+
+          {/* Card 4: Distance to target */}
+          {currentTarget && (
+            <NavigationCard
+              type="stop"
+              title={currentTarget.name || 'Target'}
+              distance={distanceToTarget}
+              label="next stop"
+            />
+          )}
+        </div>
+      </div>
+
+      {/* ============ Mini Map (Bottom, Yellow Border) ============ */}
+      <div className="minimap-wrapper">
         <MiniMap
           userLocation={userLoc}
           nextWaypointIndex={targetIndex}
           userHeading={deviceHeading}
           activeRoute={activeRoute}
         />
-      </div>
-
-      {/* Camera View with AR Overlays */}
-      <div className="camera-container">
-        {/* Camera Feed */}
-        <CameraFeed />
-
-        {/* AR Arrow Layer */}
-        {geoLoaded && (
-          <ARView
-            targetBearing={bearingToTarget}
-            currentHeading={deviceHeading}
-          />
-        )}
-
-        {/* Landmark Labels - Temporarily disabled */}
-        {/* <LandmarkLabel
-          name="Robertson Library"
-          type="library"
-          position={{ x: 75, y: 25 }}
-          visible={true}
-        /> */}
-
-        {/* Destination Pin - Temporarily disabled */}
-        {/* <DestinationPin
-          position={{ x: 50, y: 60 }}
-          visible={showDestinationPin}
-        /> */}
-
-        {/* Progress Bar (Vertical) */}
-        <div className="progress-bar-container">
-          <div
-            className="progress-bar-fill"
-            style={{ height: `${progressPercent}%` }}
-          />
-        </div>
-
-        {/* Compass Indicator */}
-        <div style={{
-          position: 'absolute',
-          right: 40,
-          top: '50%',
-          transform: 'translateY(-50%) rotate(' + deviceHeading + 'deg)',
-          zIndex: 25
-        }}>
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" strokeWidth="2">
-            <polygon points="12,2 22,22 12,17 2,22" />
-          </svg>
-        </div>
       </div>
     </div>
   );
