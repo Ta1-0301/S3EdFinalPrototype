@@ -1,7 +1,7 @@
 import { useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { Billboard, Text } from '@react-three/drei';
-import { Group, Shape } from 'three';
+import { Group, Shape, Vector3 } from 'three';
 import { calculateDistance, calculateBearing, toRadians } from '../utils/geoUtils';
 import type { Coordinate } from '../utils/geoUtils';
 
@@ -15,12 +15,20 @@ interface LandmarkData {
     visibleRadius: number;
 }
 
+interface BusStopData {
+    id: string;
+    name: string;
+    lat: number;
+    lon: number;
+}
+
 interface ARViewProps {
     targetBearing: number;
     currentHeading: number;
     pitch?: number;
     landmarks?: LandmarkData[];
     userLocation?: Coordinate;
+    busStops?: BusStopData[];
 }
 
 // ============ AR Navigation Arrow ============
@@ -28,12 +36,17 @@ interface ARViewProps {
 const ArrowModel = ({ rotationY, pitch = 0 }: { rotationY: number; pitch?: number }) => {
     const groupRef = useRef<Group>(null!);
 
+    // Base Y position: negative = lower on screen
+    // At Z=-5 with FOV75, visible Y range ≈ ±3.8. Use -2.8 for near-bottom.
+    const BASE_Y = -2.8;
+
     useFrame((state) => {
         if (groupRef.current) {
             groupRef.current.rotation.y += (rotationY - groupRef.current.rotation.y) * 0.1;
             groupRef.current.rotation.x = pitch;
             const t = state.clock.getElapsedTime();
-            groupRef.current.position.y = Math.sin(t * 2) * 0.2;
+            // Bob around BASE_Y
+            groupRef.current.position.y = BASE_Y + Math.sin(t * 2) * 0.15;
         }
     });
 
@@ -60,12 +73,12 @@ const ArrowModel = ({ rotationY, pitch = 0 }: { rotationY: number; pitch?: numbe
     };
 
     return (
-        <group ref={groupRef} position={[0, -1.2, -5]}>
+        <group ref={groupRef} position={[0, BASE_Y, -5]}>
             <mesh rotation={[-Math.PI / 2 + 0.5, 0, 0]}>
                 <extrudeGeometry args={[arrowShape, extrudeSettings]} />
                 <meshStandardMaterial
-                    color="#00ff88"
-                    emissive="#004422"
+                    color="#FFD570"
+                    emissive="#FFC02B"
                     emissiveIntensity={0.8}
                     roughness={0.2}
                     metalness={0.8}
@@ -75,7 +88,110 @@ const ArrowModel = ({ rotationY, pitch = 0 }: { rotationY: number; pitch?: numbe
     );
 };
 
-// ============ 3D Landmark Pin ============
+// ============ 3D Bus Stop Pin ============
+
+const BusStopPin = ({
+    position,
+    name,
+    distance,
+}: {
+    position: [number, number, number];
+    name: string;
+    distance: number;
+}) => {
+    const groupRef = useRef<Group>(null!);
+    // Smoothed target position (lerp target for xz, bob for y)
+    const targetPosRef = useRef<Vector3>(new Vector3(...position));
+
+    useFrame((state) => {
+        if (groupRef.current) {
+            const t = state.clock.getElapsedTime();
+            // Update lerp target with latest calculated position
+            targetPosRef.current.set(position[0], position[1], position[2]);
+            // Smoothly lerp x and z (lateral: resist jitter)
+            groupRef.current.position.x += (targetPosRef.current.x - groupRef.current.position.x) * 0.06;
+            groupRef.current.position.z += (targetPosRef.current.z - groupRef.current.position.z) * 0.06;
+            // Bob y independently
+            groupRef.current.position.y = position[1] + Math.sin(t * 1.2 + 1) * 0.12;
+        }
+    });
+
+    const scale = Math.max(0.8, Math.min(2.2, 60 / Math.max(distance, 10)));
+
+    return (
+        <group ref={groupRef} position={position}>
+            <group scale={[scale, scale, scale]}>
+                <Billboard follow={true} lockX={false} lockY={false} lockZ={false}>
+                    {/* Blue pin sphere */}
+                    <mesh position={[0, 0.8, 0]}>
+                        <sphereGeometry args={[0.4, 16, 16]} />
+                        <meshStandardMaterial
+                            color="#007AFF"
+                            emissive="#003d99"
+                            emissiveIntensity={0.6}
+                            roughness={0.2}
+                            metalness={0.5}
+                        />
+                    </mesh>
+
+                    {/* Bus icon: white horizontal bar */}
+                    <mesh position={[0, 0.8, 0.36]}>
+                        <planeGeometry args={[0.4, 0.12]} />
+                        <meshBasicMaterial color="white" />
+                    </mesh>
+                    {/* Bus icon: white top bar (window) */}
+                    <mesh position={[0, 0.9, 0.36]}>
+                        <planeGeometry args={[0.3, 0.08]} />
+                        <meshBasicMaterial color="white" />
+                    </mesh>
+
+                    {/* Blue needle cone */}
+                    <mesh position={[0, 0.1, 0]} rotation={[Math.PI, 0, 0]}>
+                        <coneGeometry args={[0.12, 0.6, 8]} />
+                        <meshStandardMaterial
+                            color="#007AFF"
+                            emissive="#003d99"
+                            emissiveIntensity={0.4}
+                        />
+                    </mesh>
+
+                    {/* Label background */}
+                    <mesh position={[0, 1.7, 0]}>
+                        <planeGeometry args={[name.length * 0.22 + 0.6, 0.5]} />
+                        <meshBasicMaterial color="#002266" opacity={0.85} transparent />
+                    </mesh>
+                    <Text
+                        position={[0, 1.7, 0.01]}
+                        fontSize={0.25}
+                        color="white"
+                        anchorX="center"
+                        anchorY="middle"
+                        font={undefined}
+                    >
+                        {name}
+                    </Text>
+                    {/* Distance label */}
+                    <Text
+                        position={[0, 1.35, 0.01]}
+                        fontSize={0.16}
+                        color="#88bbff"
+                        anchorX="center"
+                        anchorY="middle"
+                        font={undefined}
+                    >
+                        🚌 {distance}m
+                    </Text>
+                </Billboard>
+
+                {/* Ground shadow */}
+                <mesh position={[0, -0.2, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+                    <circleGeometry args={[0.3, 16]} />
+                    <meshBasicMaterial color="#007AFF" opacity={0.3} transparent />
+                </mesh>
+            </group>
+        </group>
+    );
+};
 
 const LandmarkPin = ({
     position,
@@ -87,18 +203,26 @@ const LandmarkPin = ({
     distance: number;
 }) => {
     const groupRef = useRef<Group>(null!);
+    // Smoothed target position (lerp target for xz, bob for y)
+    const targetPosRef = useRef<Vector3>(new Vector3(...position));
 
-    // Bobbing animation
+    // Bobbing animation with lerp stabilization
     useFrame((state) => {
         if (groupRef.current) {
             const t = state.clock.getElapsedTime();
+            // Update lerp target with latest calculated position
+            targetPosRef.current.set(position[0], position[1], position[2]);
+            // Smoothly lerp x and z (lateral/depth: resist jitter from compass noise)
+            groupRef.current.position.x += (targetPosRef.current.x - groupRef.current.position.x) * 0.06;
+            groupRef.current.position.z += (targetPosRef.current.z - groupRef.current.position.z) * 0.06;
+            // Bob y independently
             groupRef.current.position.y = position[1] + Math.sin(t * 1.5) * 0.15;
         }
     });
 
     // Scale based on distance: closer = bigger, farther = smaller
-    // Clamp between 0.4 and 1.2
-    const scale = Math.max(0.4, Math.min(1.2, 30 / Math.max(distance, 10)));
+    // Clamp between 0.8 and 2.4
+    const scale = Math.max(0.8, Math.min(2.4, 60 / Math.max(distance, 10)));
 
     return (
         <group ref={groupRef} position={position}>
@@ -178,12 +302,14 @@ const SceneContent = ({
     arrowRotationY,
     pitch,
     landmarks,
+    busStops,
     userLocation,
     currentHeading,
 }: {
     arrowRotationY: number;
     pitch: number;
     landmarks: LandmarkData[];
+    busStops: BusStopData[];
     userLocation: Coordinate;
     currentHeading: number;
 }) => {
@@ -226,6 +352,23 @@ const SceneContent = ({
             })[];
     }, [landmarks, userLocation, currentHeading]);
 
+    // Convert GPS bus stops to Three.js positions (within 300m)
+    const visibleBusStops = useMemo(() => {
+        if (!userLocation || userLocation.lat === 0) return [];
+        return busStops
+            .map((bs) => {
+                const dist = calculateDistance(userLocation, { lat: bs.lat, lon: bs.lon });
+                if (dist > 300) return null;
+                const bearing = calculateBearing(userLocation, { lat: bs.lat, lon: bs.lon });
+                const relAngle = toRadians(bearing - currentHeading);
+                const d3d = Math.min(dist * 0.15, 20);
+                const x = d3d * Math.sin(relAngle);
+                const z = -d3d * Math.cos(relAngle);
+                return { ...bs, position: [x, 0, z] as [number, number, number], distance: Math.round(dist) };
+            })
+            .filter(Boolean) as (BusStopData & { position: [number, number, number]; distance: number })[];
+    }, [busStops, userLocation, currentHeading]);
+
     return (
         <>
             <ambientLight intensity={0.5} />
@@ -234,13 +377,23 @@ const SceneContent = ({
             {/* Navigation Arrow */}
             <ArrowModel rotationY={arrowRotationY} pitch={pitch} />
 
-            {/* Landmark Pins */}
+            {/* Landmark Pins (red — buildings) */}
             {visibleLandmarks.map((lm) => (
                 <LandmarkPin
                     key={lm.id}
                     position={lm.position}
                     name={lm.name}
                     distance={lm.distance}
+                />
+            ))}
+
+            {/* Bus Stop Pins (blue — bus stops from route) */}
+            {visibleBusStops.map((bs) => (
+                <BusStopPin
+                    key={bs.id}
+                    position={bs.position}
+                    name={bs.name}
+                    distance={bs.distance}
                 />
             ))}
         </>
@@ -255,6 +408,7 @@ export const ARView: React.FC<ARViewProps> = ({
     pitch = 0,
     landmarks = [],
     userLocation = { lat: 0, lon: 0 },
+    busStops = [],
 }) => {
     let relAngleDeg = targetBearing - currentHeading;
     while (relAngleDeg > 180) relAngleDeg -= 360;
@@ -268,6 +422,7 @@ export const ARView: React.FC<ARViewProps> = ({
                     arrowRotationY={-relAngleRad}
                     pitch={pitch}
                     landmarks={landmarks}
+                    busStops={busStops}
                     userLocation={userLocation}
                     currentHeading={currentHeading}
                 />

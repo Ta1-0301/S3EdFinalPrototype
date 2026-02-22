@@ -71,3 +71,28 @@ export function findNearestWaypointIndex(
 
     return nearestIndex;
 }
+
+/**
+ * Project a point from a given coordinate along a bearing by a given distance (meters).
+ * Used to calculate look-ahead points beyond turn waypoints.
+ */
+export function projectPoint(origin: Coordinate, bearingDeg: number, distanceM: number): Coordinate {
+    const δ = distanceM / R; // angular distance
+    const θ = toRadians(bearingDeg);
+    const φ1 = toRadians(origin.lat);
+    const λ1 = toRadians(origin.lon);
+
+    const φ2 = Math.asin(
+        Math.sin(φ1) * Math.cos(δ) +
+        Math.cos(φ1) * Math.sin(δ) * Math.cos(θ)
+    );
+    const λ2 = λ1 + Math.atan2(
+        Math.sin(θ) * Math.sin(δ) * Math.cos(φ1),
+        Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2)
+    );
+
+    return {
+        lat: toDegrees(φ2),
+        lon: ((toDegrees(λ2) + 540) % 360) - 180, // normalize to [-180, 180]
+    };
+}

@@ -5,20 +5,41 @@ import { MiniMap } from './components/MiniMap';
 import { NavigationCard } from './components/NavigationCard';
 // import { LandmarkLabel, DestinationPin } from './components/LandmarkLabel';
 import { useSensorFusion } from './hooks/useSensorFusion';
-import { calculateDistance, calculateBearing, findNearestWaypointIndex } from './utils/geoUtils';
+import { calculateDistance, calculateBearing, findNearestWaypointIndex, projectPoint } from './utils/geoUtils';
 import routeData from './data/route.json';
 
 function App() {
   // Sensor Fusion: GPS + Orientation + Kalman Filter
   const {
     smoothedLocation,
+    rawLocation,
     heading: deviceHeading,
     pitch: devicePitch,
     accuracy: gpsAccuracy,
+    speed: gpsSpeed,
     loaded: geoLoaded,
     error: geoError,
     calibrateHeading,
   } = useSensorFusion();
+
+  // Composite heading for MiniMap:
+  // - GPS heading (from movement) is used when speed >= 0.5 m/s (more accurate when moving)
+  // - Compass heading is used when stationary/slow, or GPS heading is unavailable
+  // Weight blends smoothly between the two sources
+  const compositeHeading = useMemo(() => {
+    const gpsHeading = rawLocation.headingGPS;
+    const speed = gpsSpeed ?? 0;
+    if (gpsHeading != null && !isNaN(gpsHeading) && speed >= 0.5) {
+      // Blend: higher speed = more GPS trust (up to 80%)
+      const gpsWeight = Math.min(0.8, speed / 3);
+      // Handle angle wrap-around when blending
+      let diff = gpsHeading - deviceHeading;
+      if (diff > 180) diff -= 360;
+      if (diff < -180) diff += 360;
+      return (deviceHeading + diff * gpsWeight + 360) % 360;
+    }
+    return deviceHeading;
+  }, [rawLocation.headingGPS, gpsSpeed, deviceHeading]);
 
   // Use smoothed (Kalman-filtered) location for navigation
   const userLoc = smoothedLocation;
@@ -27,6 +48,11 @@ function App() {
   const [isNavigating, setIsNavigating] = useState(false);
   const [activeRoute, setActiveRoute] = useState<any[]>([]);
   const [isOutbound, setIsOutbound] = useState(true);
+
+  // Extract bus stops from active route for AR pins
+  const busStopsList = useMemo(() =>
+    activeRoute.filter((wp: any) => wp.type === 'bus_stop'),
+    [activeRoute]);
 
   // Audio refs
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -98,14 +124,14 @@ function App() {
           isPlayingRef.current = false;
         };
 
-        audioRef.current.src = `/assets/AudioTrack/getOff.mp3`;
+        audioRef.current.src = `./assets/AudioTrack/Audio file Get off.mp3`;
 
         audioRef.current.onended = () => {
           if (!audioRef.current) {
             isPlayingRef.current = false;
             return;
           }
-          audioRef.current.src = `/assets/AudioTrack/${stopAudioFile}`;
+          audioRef.current.src = `./assets/AudioTrack/${stopAudioFile}`;
           audioRef.current.onended = () => {
             isPlayingRef.current = false;
           };
@@ -136,57 +162,58 @@ function App() {
     return Math.round(calculateDistance(userLoc, currentTarget));
   }, [userLoc, currentTarget]);
 
-  // Find next turn and next bus stop
-  const nextTurn = useMemo(() => {
-    for (let i = targetIndex; i < activeRoute.length; i++) {
-      if (activeRoute[i].type.includes('turn')) {
-        const dist = Math.round(calculateDistance(userLoc, activeRoute[i]));
-        return { ...activeRoute[i], distance: dist };
-      }
+  // Next 3 waypoints in route order (starting from current target)
+  const upcomingWaypoints = useMemo(() => {
+    const results = [];
+    for (let i = targetIndex; i < activeRoute.length && results.length < 3; i++) {
+      const dist = Math.round(calculateDistance(userLoc, activeRoute[i]));
+      results.push({ ...activeRoute[i], distance: dist });
     }
-    return null;
-  }, [activeRoute, targetIndex, userLoc]);
-
-  const nextBusStop = useMemo(() => {
-    for (let i = targetIndex; i < activeRoute.length; i++) {
-      if (activeRoute[i].type === 'bus_stop') {
-        const dist = Math.round(calculateDistance(userLoc, activeRoute[i]));
-        let stopsUntil = 0;
-        for (let j = targetIndex; j < i; j++) {
-          if (activeRoute[j].type === 'bus_stop') stopsUntil++;
-        }
-        return { ...activeRoute[i], distance: dist, stopsUntil };
-      }
-    }
-    return null;
-  }, [activeRoute, targetIndex, userLoc]);
-
-  // Find second bus stop (for 3rd card)
-  const secondBusStop = useMemo(() => {
-    let found = 0;
-    for (let i = targetIndex; i < activeRoute.length; i++) {
-      if (activeRoute[i].type === 'bus_stop') {
-        found++;
-        if (found === 2) {
-          const dist = Math.round(calculateDistance(userLoc, activeRoute[i]));
-          return { ...activeRoute[i], distance: dist };
-        }
-      }
-    }
-    return null;
+    return results;
   }, [activeRoute, targetIndex, userLoc]);
 
   const bearingToTarget = useMemo(() => {
-    if (!currentTarget) return 0;
-    const realBearing = calculateBearing(userLoc, currentTarget);
-    const isTurn = currentTarget.type.includes('turn');
-    const isNear = distanceToTarget < 40;
+    if (!currentTarget) return deviceHeading;
 
-    if (isTurn && isNear) {
-      return realBearing;
+    // Look-ahead distance beyond the turn vertex (meters)
+    const LOOK_AHEAD_M = 15;
+    // Trigger radius: start pointing to turn when within this distance
+    const TURN_TRIGGER_M = 45;
+
+    // Helper: given a turn waypoint index, compute bearing toward the look-ahead point
+    const lookAheadBearing = (turnIdx: number): number => {
+      const turnWp = activeRoute[turnIdx];
+      const exitWp = activeRoute[turnIdx + 1]; // waypoint after the turn
+      if (!exitWp) {
+        // No exit waypoint — fall back to pointing directly at the turn
+        return calculateBearing(userLoc, turnWp);
+      }
+      // Exit bearing = direction from turn vertex to next waypoint
+      const exitBearing = calculateBearing(turnWp, exitWp);
+      // Project a point 15m past the turn vertex along the exit bearing
+      const ahead = projectPoint(turnWp, exitBearing, LOOK_AHEAD_M);
+      return calculateBearing(userLoc, ahead);
+    };
+
+    // 1. Is the current target itself a turn and close enough?
+    if (currentTarget.type.includes('turn') && distanceToTarget < TURN_TRIGGER_M) {
+      return lookAheadBearing(targetIndex);
     }
+
+    // 2. Look ahead in the route for the nearest upcoming turn within range
+    for (let i = targetIndex + 1; i < activeRoute.length; i++) {
+      if (activeRoute[i].type.includes('turn')) {
+        const distToTurn = calculateDistance(userLoc, activeRoute[i]);
+        if (distToTurn < TURN_TRIGGER_M) {
+          return lookAheadBearing(i);
+        }
+        break; // only check the nearest upcoming turn
+      }
+    }
+
+    // 3. Default: straight ahead
     return deviceHeading;
-  }, [userLoc, currentTarget, deviceHeading, distanceToTarget]);
+  }, [userLoc, currentTarget, deviceHeading, distanceToTarget, activeRoute, targetIndex]);
 
   // Turn direction
   const getTurnDirection = (type: string): 'left' | 'right' | 'straight' => {
@@ -213,6 +240,7 @@ function App() {
             targetBearing={bearingToTarget}
             currentHeading={deviceHeading}
             landmarks={routeData.landmarks}
+            busStops={busStopsList}
             userLocation={userLoc}
           />
         )}
@@ -270,46 +298,23 @@ function App() {
       {/* ============ Info Cards (Horizontal Scroll) ============ */}
       <div className="cards-scroll-container">
         <div className="cards-scroll">
-          {/* Card 1: Next Bus Stop */}
-          {nextBusStop && (
-            <NavigationCard
-              type="stop"
-              title={nextBusStop.name || 'Bus Stop'}
-              distance={nextBusStop.distance}
-              label="next stop"
-            />
-          )}
-
-          {/* Card 2: Next Turn */}
-          {nextTurn && (
-            <NavigationCard
-              type="turn"
-              title={`Turn ${getTurnDirection(nextTurn.type) === 'left' ? 'Left' : 'Right'}`}
-              distance={nextTurn.distance}
-              turnDirection={getTurnDirection(nextTurn.type)}
-              label="next stop"
-            />
-          )}
-
-          {/* Card 3: Second Bus Stop */}
-          {secondBusStop && (
-            <NavigationCard
-              type="stop"
-              title={secondBusStop.name || 'Bus Stop'}
-              distance={secondBusStop.distance}
-              label="next stop"
-            />
-          )}
-
-          {/* Card 4: Distance to target */}
-          {currentTarget && (
-            <NavigationCard
-              type="stop"
-              title={currentTarget.name || 'Target'}
-              distance={distanceToTarget}
-              label="next stop"
-            />
-          )}
+          {upcomingWaypoints.map((wp, idx) => {
+            const isTurn = wp.type.includes('turn');
+            return (
+              <NavigationCard
+                key={wp.id ?? idx}
+                type={isTurn ? 'turn' : 'stop'}
+                title={
+                  isTurn
+                    ? `Turn ${getTurnDirection(wp.type) === 'left' ? 'Left' : 'Right'}`
+                    : wp.name || 'Waypoint'
+                }
+                distance={wp.distance}
+                turnDirection={isTurn ? getTurnDirection(wp.type) : undefined}
+                label={idx === 0 ? 'next' : `in ${idx + 1} stops`}
+              />
+            );
+          })}
         </div>
       </div>
 
@@ -318,7 +323,7 @@ function App() {
         <MiniMap
           userLocation={userLoc}
           nextWaypointIndex={targetIndex}
-          userHeading={deviceHeading}
+          userHeading={compositeHeading}
           activeRoute={activeRoute}
         />
       </div>

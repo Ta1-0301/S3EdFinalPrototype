@@ -19,6 +19,9 @@ export const MiniMap: React.FC<MiniMapProps> = ({
     const mapRef = useRef<maplibregl.Map | null>(null);
     const userMarkerRef = useRef<maplibregl.Marker | null>(null);
     const initializedRef = useRef(false);
+    // Keep latest activeRoute accessible inside async map.on('load') callback
+    const activeRouteRef = useRef<any[]>(activeRoute);
+    useEffect(() => { activeRouteRef.current = activeRoute; }, [activeRoute]);
 
     // Initialize map
     useEffect(() => {
@@ -81,7 +84,7 @@ export const MiniMap: React.FC<MiniMapProps> = ({
                 },
             });
 
-            // Route line - upcoming section (bright)
+            // Route line - bright cyan (survives CSS invert+hue-rotate)
             map.addLayer({
                 id: 'route-line',
                 type: 'line',
@@ -91,9 +94,9 @@ export const MiniMap: React.FC<MiniMapProps> = ({
                     'line-cap': 'round',
                 },
                 paint: {
-                    'line-color': '#ffffff',
-                    'line-width': 4,
-                    'line-opacity': 0.9,
+                    'line-color': '#00d4ff',
+                    'line-width': 5,
+                    'line-opacity': 0.95,
                 },
             });
 
@@ -131,6 +134,38 @@ export const MiniMap: React.FC<MiniMapProps> = ({
             });
 
             initializedRef.current = true;
+
+            // Apply route data that may have arrived before map finished loading
+            const pendingRoute = activeRouteRef.current;
+            if (pendingRoute.length > 0) {
+                const routeSrc = map.getSource('route') as maplibregl.GeoJSONSource;
+                if (routeSrc) {
+                    routeSrc.setData({
+                        type: 'Feature',
+                        properties: {},
+                        geometry: {
+                            type: 'LineString',
+                            coordinates: pendingRoute.map((wp: any) => [wp.lon, wp.lat]),
+                        },
+                    });
+                }
+                const stopSrc = map.getSource('bus-stops') as maplibregl.GeoJSONSource;
+                if (stopSrc) {
+                    stopSrc.setData({
+                        type: 'FeatureCollection',
+                        features: pendingRoute
+                            .filter((wp: any) => wp.type === 'bus_stop')
+                            .map((wp: any) => ({
+                                type: 'Feature' as const,
+                                properties: { name: wp.name || 'Stop' },
+                                geometry: { type: 'Point' as const, coordinates: [wp.lon, wp.lat] },
+                            })),
+                    });
+                }
+                const bounds = new maplibregl.LngLatBounds();
+                pendingRoute.forEach((wp: any) => bounds.extend([wp.lon, wp.lat]));
+                map.fitBounds(bounds, { padding: 30, duration: 0 });
+            }
         });
 
         mapRef.current = map;

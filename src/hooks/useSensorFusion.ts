@@ -15,8 +15,12 @@ import { KalmanFilter2D, type KalmanState } from '../utils/KalmanFilter';
  * Result: 滑らかな位置 + 方位を出力
  */
 
-// EMA smoothing factor for heading (Kotlin版と同等の応答性)
-const HEADING_EMA_ALPHA = 0.2;
+/**
+ * Low Pass Filter alpha for heading smoothing.
+ * Range: 0.05 (very smooth/slow) to 0.2 (responsive/noisy)
+ * 0.1 = balanced — matches Kotlin SensorFusion spec
+ */
+const HEADING_LPF_ALPHA = 0.1;
 
 // Predict interval (ms) - between GPS updates, predict position from velocity
 const PREDICT_INTERVAL_MS = 50; // 20fps prediction
@@ -187,26 +191,30 @@ export const useSensorFusion = () => {
                     correctedHeading = (compassHeading + screenAngle) % 360;
                 }
 
-                // EMA smoothing (circular interpolation via sin/cos decomposition)
-                const currentRad = (headingRef.current * Math.PI) / 180;
-                const targetRad = (correctedHeading * Math.PI) / 180;
-
-                const cx = Math.cos(currentRad);
-                const cy = Math.sin(currentRad);
-                const tx = Math.cos(targetRad);
-                const ty = Math.sin(targetRad);
-
-                const nx = cx + (tx - cx) * HEADING_EMA_ALPHA;
-                const ny = cy + (ty - cy) * HEADING_EMA_ALPHA;
-
-                let smoothHeading = (Math.atan2(ny, nx) * 180) / Math.PI;
-                smoothHeading = (smoothHeading + 360) % 360;
-
-                headingRef.current = smoothHeading;
+                // Low Pass Filter with delta correction (spec: Kotlin SensorFusion)
+                // Handles 359° → 1° wraparound correctly
+                const prev = headingRef.current;
+                if (prev === 0 && correctedHeading !== 0) {
+                    // First reading: initialize directly
+                    headingRef.current = correctedHeading;
+                } else {
+                    let delta = correctedHeading - prev;
+                    // Normalize delta to [-180, 180] to avoid jump artifacts
+                    if (delta > 180) delta -= 360;
+                    if (delta < -180) delta += 360;
+                    headingRef.current = (prev + HEADING_LPF_ALPHA * delta + 360) % 360;
+                }
 
                 // Apply calibration offset
-                const calibrated = (smoothHeading + headingOffsetRef.current + 360) % 360;
-                setHeading(calibrated);
+                const calibrated = (headingRef.current + headingOffsetRef.current + 360) % 360;
+
+                // Deadzone: skip update if heading change < 2° (suppress compass micro-jitter)
+                setHeading(prev => {
+                    let diff = calibrated - prev;
+                    if (diff > 180) diff -= 360;
+                    if (diff < -180) diff += 360;
+                    return Math.abs(diff) < 2.0 ? prev : calibrated;
+                });
             }
 
             if (devicePitch !== null) {

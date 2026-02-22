@@ -1,24 +1,28 @@
 import React from 'react';
 
-// Turn direction icons as SVG
+// Turn direction icons — curved arrow style matching reference image
 const TurnLeftIcon = () => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M15 4v7a4 4 0 0 1-4 4H5" />
-        <path d="M9 11L5 15L9 19" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        {/* Curved arc from bottom-right up and to the left */}
+        <path d="M18 16 C18 10, 12 6, 6 9" />
+        {/* Arrowhead pointing left */}
+        <polyline points="9,6 6,9 9,12" />
     </svg>
 );
 
 const TurnRightIcon = () => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M9 4v7a4 4 0 0 0 4 4h6" />
-        <path d="M15 11l4 4-4 4" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        {/* Curved arc from bottom-left up and to the right */}
+        <path d="M6 16 C6 10, 12 6, 18 9" />
+        {/* Arrowhead pointing right */}
+        <polyline points="15,6 18,9 15,12" />
     </svg>
 );
 
 const StraightIcon = () => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 19V5" />
-        <path d="M5 12l7-7 7 7" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="12" y1="19" x2="12" y2="5" />
+        <polyline points="7,10 12,5 17,10" />
     </svg>
 );
 
@@ -58,7 +62,16 @@ export const NavigationCard: React.FC<NavigationCardProps> = ({
 
     return (
         <div className="yellow-card">
-            {/* Top icon */}
+            {/* Main text — top */}
+            <div className="yellow-card-text">
+                <span className="yellow-card-title">{title}</span>
+                <span className="yellow-card-distance">in {distance}m</span>
+            </div>
+
+            {/* Bottom label */}
+            <div className="yellow-card-label">{label}</div>
+
+            {/* Bottom icon */}
             <div className="yellow-card-icon">
                 {type === 'turn' ? (
                     <div className="turn-icon-circle">
@@ -68,15 +81,6 @@ export const NavigationCard: React.FC<NavigationCardProps> = ({
                     <PinIcon />
                 )}
             </div>
-
-            {/* Main text */}
-            <div className="yellow-card-text">
-                <span className="yellow-card-title">{title}</span>
-                <span className="yellow-card-distance">in {distance}m</span>
-            </div>
-
-            {/* Bottom label */}
-            <div className="yellow-card-label">{label}</div>
         </div>
     );
 };
